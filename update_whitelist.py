@@ -131,13 +131,13 @@ def update_whitelist():
     with open(whitelist_file, 'r') as file:
         whitelist = yaml.safe_load(file) or {}
 
-    try:
-        ip = request.headers.get('X-Forwarded-For').split(",")[0]
-    except:
-        ip = request.headers.get('X-Forwarded-For')
-
-    if ip == None:
-        ip = request.remote_addr
+    # Prefer Cloudflare's authoritative client IP. Behind an origin locked to
+    # Cloudflare (Authenticated Origin Pulls), CF-Connecting-IP cannot be spoofed,
+    # unlike the left-most X-Forwarded-For. Fall back to XFF/remote otherwise.
+    ip = request.headers.get('CF-Connecting-IP')
+    if not ip:
+        xff = request.headers.get('X-Forwarded-For')
+        ip = xff.split(',')[0].strip() if xff else request.remote_addr
 
     # Check if there is a pending approval for the IP within the last hour
     if f'{ip}/32' not in whitelist['http']['middlewares']['dynamic-ipwhitelist']['IPAllowList']['sourceRange']:
