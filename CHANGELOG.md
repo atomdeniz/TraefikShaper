@@ -1,4 +1,11 @@
-## 0.2.0 (2026-07-02)
+## [0.2.1](https://github.com/atomdeniz/TraefikShaper/compare/v0.2.0...v0.2.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* unguessable nonce approval token and client IP validation ([b06bff4](https://github.com/atomdeniz/TraefikShaper/commit/b06bff489d0b65d1aac72032d777772d2e563a0a)), closes [#1](https://github.com/atomdeniz/TraefikShaper/issues/1) [#4](https://github.com/atomdeniz/TraefikShaper/issues/4)
+
+## [0.2.0](https://github.com/atomdeniz/TraefikShaper/compare/9cf15c0ebcf2721054f9491f70a349a395fe5c8a...v0.2.0) (2026-07-02)
 
 
 ### Features
