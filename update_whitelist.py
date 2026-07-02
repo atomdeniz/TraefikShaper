@@ -1,8 +1,7 @@
 import os
 import yaml
 import time
-import hmac
-import hashlib
+import ipaddress
 import requests
 import secrets
 import logging
@@ -23,11 +22,11 @@ pending_approval = {}
 # Dictionary to store IP addresses along with their last request time
 ip_last_request = {}
 
-# Secret for generating secure approval tokens
-SECRET_KEY = os.getenv('SECRET_KEY', secrets.token_hex(16))
-
 # Get default expiration time from environment variable or default to 20 seconds
 EXPIRATION_TIME = int(os.getenv('EXPIRATION_TIME', 300))
+
+# Approval token lifetime (seconds); stale pending requests can't be approved.
+PENDING_TTL = int(os.getenv('PENDING_TTL', 600))
 
 # Get hostname and protocol from environment variables
 APPURL = os.getenv('APPURL', "http://localhost:5000")
@@ -139,6 +138,12 @@ def update_whitelist():
         xff = request.headers.get('X-Forwarded-For')
         ip = xff.split(',')[0].strip() if xff else request.remote_addr
 
+    # Reject malformed IPs before they reach the whitelist YAML.
+    try:
+        ip = str(ipaddress.ip_address(ip))
+    except (ValueError, TypeError):
+        return 'Invalid client IP.', 400
+
     # Check if there is a pending approval for the IP within the last hour
     if f'{ip}/32' not in whitelist['http']['middlewares']['dynamic-ipwhitelist']['IPAllowList']['sourceRange']:
         if ip in ip_last_request:
@@ -166,11 +171,11 @@ def update_whitelist():
 
     # Check if IP address already exists in sourceRange
     if f'{ip}/32' not in whitelist['http']['middlewares']['dynamic-ipwhitelist']['IPAllowList']['sourceRange']:
-        # Generate a token for the IP address
-        token = generate_token(ip)
+        # Generate an unpredictable single-use token
+        token = generate_token()
 
         # Store IP address and token for pending approval
-        pending_approval[ip] = {'expiration_time': expiration_time, 'token': token}
+        pending_approval[ip] = {'expiration_time': expiration_time, 'token': token, 'created': time.time()}
 
         # Construct approval link with FQDN URL, IP address, and token
         approval_link = f'{APPURL}/approve?ip={ip}&token={token}&expiration_time={expiration_time}'
@@ -242,8 +247,9 @@ def approve_ip():
     token = request.args.get('token')
     expiration_time = int(request.args.get('expiration_time', EXPIRATION_TIME))
 
-    # Check if IP and token are valid
-    if ip in pending_approval and pending_approval[ip]['token'] == token:
+    # Validate token (constant-time) and reject stale pending requests
+    entry = pending_approval.get(ip)
+    if entry and secrets.compare_digest(entry['token'], token or '') and (time.time() - entry['created']) < PENDING_TTL:
         whitelist_file = 'dynamic-whitelist.yml'
 
         # Load existing whitelist or initialize as empty dictionary
@@ -278,13 +284,9 @@ def approve_ip():
 
     return 'Invalid token or IP address.', 403
 
-# Generate a token for the IP address
-def generate_token(ip):
-    secret_key = SECRET_KEY
-    current_time = str(int(time.time()))  # Get current time as string
-    data = ip + current_time  # Concatenate IP and current time
-    signature = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
-    return signature
+# Unpredictable single-use approval token (compared server-side)
+def generate_token():
+    return secrets.token_urlsafe(32)
 
 # Periodically check and remove expired IP addresses from the whitelist
 def remove_expired_ips():
